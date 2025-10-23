@@ -1,0 +1,16 @@
+# Node / build cache
+node_modules/
+npm-debug.log*
+.DS_Store
+
+# Editors / OS
+.vscode/
+.idea/
+
+# Build artefacts
+assets/*.map
+build/*.map
+
+# Composer
+vendor/
+composer.lock

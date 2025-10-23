@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "nsb/newsletter-signup",
+  "version": "1.0.0",
+  "title": "Newsletter Signup",
+  "category": "widgets",
+  "description": "A newsletter signup form with REST API confirmation.",
+  "textdomain": "nsb",
+  "attributes": {
+    "headline": { "type": "string", "default": "Subscribe to our newsletter" },
+    "buttonLabel": { "type": "string", "default": "Subscribe" }
+  },
+  "supports": {
+    "html": false,
+    "spacing": { "margin": true, "padding": true },
+    "color": { "text": true, "background": true }
+  },
+  "editorScript": "file:./build/index.js",
+  "style": "file:./assets/style.css",
+  "render": "file:./render.php"
+}

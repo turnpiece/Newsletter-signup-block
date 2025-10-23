@@ -1,0 +1,12 @@
+{
+  "name": "newsletter-signup-block",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@wordpress/scripts": "^30.0.0"
+  },
+  "scripts": {
+    "build": "wp-scripts build",
+    "start": "wp-scripts start"
+  }
+}
