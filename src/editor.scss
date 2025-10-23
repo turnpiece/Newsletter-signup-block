@@ -1,0 +1,15 @@
+/* src/editor.scss */
+/* Reuse front-end layout expectations inside the editor */
+.wp-block-nsb-newsletter-signup .nsb-form { display: block; }
+.wp-block-nsb-newsletter-signup .nsb-actions { margin-top: .75rem; }
+
+/* Hide honeypot in the editor too */
+.wp-block-nsb-newsletter-signup .nsb-hp {
+  position: absolute !important;
+  left: -9999px !important;
+  height: 0 !important;
+  width: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
