@@ -2,15 +2,46 @@
 /**
  * Plugin Name: Newsletter Signup Block
  * Description: A custom Gutenberg block that renders a newsletter signup form and posts to a custom REST endpoint which validates the email and sends a confirmation email.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Paul Jenkins
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 // Constants
-const NSB_VERSION = '1.0.0';
+const NSB_VERSION = '1.0.1';
 const NSB_PLUGIN_DIR = __DIR__;
+const NSB_DB_VERSION = '1.0';
+
+/**
+ * Create database table on plugin activation.
+ */
+function nsb_create_table() {
+	global $wpdb;
+	$table_name      = $wpdb->prefix . 'nsb_subscribers';
+	$charset_collate = $wpdb->get_charset_collate();
+
+	$sql = "CREATE TABLE $table_name (
+		id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+		email varchar(255) NOT NULL,
+		status varchar(20) NOT NULL DEFAULT 'pending',
+		token varchar(64) DEFAULT NULL,
+		token_expires datetime DEFAULT NULL,
+		subscribed_at datetime NOT NULL,
+		confirmed_at datetime DEFAULT NULL,
+		PRIMARY KEY  (id),
+		UNIQUE KEY email (email),
+		KEY status (status),
+		KEY token (token),
+		KEY token_expires (token_expires)
+	) $charset_collate;";
+
+	require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+	dbDelta( $sql );
+
+	update_option( 'nsb_db_version', NSB_DB_VERSION );
+}
+register_activation_hook( __FILE__, 'nsb_create_table' );
 
 /**
  * Register the block (dynamic) and frontend assets.
@@ -94,6 +125,7 @@ function nsb_verify_nonce() {
  * REST callback: validate email and send confirmation email.
  */
 function nsb_rest_subscribe( WP_REST_Request $request ) {
+	global $wpdb;
 	$params = $request->get_json_params();
 
 	$email     = isset( $params['email'] ) ? sanitize_email( $params['email'] ) : '';
@@ -108,22 +140,48 @@ function nsb_rest_subscribe( WP_REST_Request $request ) {
 		return new WP_Error( 'nsb_invalid_email', __( 'Please enter a valid email address.', 'nsb' ), array( 'status' => 400 ) );
 	}
 
-	// Prevent duplicates by transient
-    // Can be replaced with real storage/CRM integration later
-	$key = 'nsb_' . md5( strtolower( $email ) );
-	if ( get_transient( $key ) ) {
-		return new WP_REST_Response( array( 'ok' => true, 'message' => __( 'You\'re already on the list — check your inbox.', 'nsb' ) ), 200 );
+	$table_name = $wpdb->prefix . 'nsb_subscribers';
+
+	// Check if email already exists in database
+	$existing = $wpdb->get_row( $wpdb->prepare(
+		"SELECT id, status FROM $table_name WHERE email = %s",
+		$email
+	) );
+
+	if ( $existing ) {
+		// If already confirmed, inform user
+		if ( $existing->status === 'confirmed' ) {
+			return new WP_REST_Response( array( 'ok' => true, 'message' => __( 'You\'re already subscribed.', 'nsb' ) ), 200 );
+		}
+		// If pending, send a friendly message (avoid revealing if email exists)
+		return new WP_REST_Response( array( 'ok' => true, 'message' => __( 'Please check your email to confirm your subscription.', 'nsb' ) ), 200 );
 	}
-	set_transient( $key, 1, HOUR_IN_SECONDS * 12 );
+
+	// Create confirmation token
+	$token         = bin2hex( random_bytes( 32 ) ); // Cryptographically secure 64-character token
+	$token_expires = gmdate( 'Y-m-d H:i:s', time() + ( HOUR_IN_SECONDS * 24 ) );
+
+	// Insert new subscriber into database
+	$inserted = $wpdb->insert(
+		$table_name,
+		array(
+			'email'         => $email,
+			'status'        => 'pending',
+			'token'         => $token,
+			'token_expires' => $token_expires,
+			'subscribed_at' => current_time( 'mysql', true ),
+		),
+		array( '%s', '%s', '%s', '%s', '%s' )
+	);
+
+	if ( ! $inserted ) {
+		return new WP_Error( 'nsb_db_error', __( 'Sorry, we couldn\'t process your subscription. Please try again later.', 'nsb' ), array( 'status' => 500 ) );
+	}
 
 	// Send confirmation email to the user
 	$site_name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
 	$subject   = sprintf( __( 'Confirm your subscription to %s', 'nsb' ), $site_name );
-
-	// Create a one-time confirmation link (token stored in transient). In production, use user meta or a custom table.
-	$token   = bin2hex( random_bytes( 32 ) ); // Cryptographically secure 64-character token
-	set_transient( 'nsb_token_' . $token, $email, HOUR_IN_SECONDS * 24 );
-	$confirm = add_query_arg( array( 'nsb_confirm' => $token ), home_url( '/' ) );
+	$confirm   = add_query_arg( array( 'nsb_confirm' => $token ), home_url( '/' ) );
 
 	$message  = sprintf( __( "Hello.\n\nPlease confirm your subscription to %s by clicking the link below:\n%s\n\nIf you didn\'t request this, you can ignore this email.\n\nThanks,\n%s", 'nsb' ), $site_name, $confirm, $site_name );
 	$headers  = array( 'Content-Type: text/plain; charset=UTF-8' );
@@ -131,6 +189,8 @@ function nsb_rest_subscribe( WP_REST_Request $request ) {
 	$sent = wp_mail( $email, $subject, $message, $headers );
 
 	if ( ! $sent ) {
+		// Optionally delete the pending subscriber if email fails
+		// $wpdb->delete( $table_name, array( 'id' => $wpdb->insert_id ), array( '%d' ) );
 		return new WP_Error( 'nsb_send_failed', __( 'Sorry, we couldn\'t send the confirmation email. Please try again later.', 'nsb' ), array( 'status' => 500 ) );
 	}
 
@@ -142,20 +202,91 @@ function nsb_rest_subscribe( WP_REST_Request $request ) {
  * Mark as confirmed and show a message.
  */
 function nsb_maybe_handle_confirmation() {
+	global $wpdb;
+
 	if ( empty( $_GET['nsb_confirm'] ) ) { return; }
-	$token  = sanitize_text_field( wp_unslash( $_GET['nsb_confirm'] ) );
-	$email  = get_transient( 'nsb_token_' . $token );
-	if ( ! $email ) { return; }
 
-	delete_transient( 'nsb_token_' . $token );
+	$token      = sanitize_text_field( wp_unslash( $_GET['nsb_confirm'] ) );
+	$table_name = $wpdb->prefix . 'nsb_subscribers';
 
-	// In a real project, store the confirmed subscriber in a list/CRM here.
-	add_action( 'wp_head', function() use ( $email ) {
+	// Find subscriber by token
+	$subscriber = $wpdb->get_row( $wpdb->prepare(
+		"SELECT id, email, status, token_expires FROM $table_name WHERE token = %s AND status = 'pending'",
+		$token
+	) );
+
+	if ( ! $subscriber ) { return; }
+
+	// Check if token has expired
+	if ( strtotime( $subscriber->token_expires ) < time() ) {
+		add_action( 'the_content', function( $content ) {
+			$msg = '<div class="nsb-confirm nsb-error">' . esc_html__( 'This confirmation link has expired. Please sign up again.', 'nsb' ) . '</div>';
+			return $msg . $content;
+		});
+		return;
+	}
+
+	// Update subscriber status to confirmed
+	$updated = $wpdb->update(
+		$table_name,
+		array(
+			'status'       => 'confirmed',
+			'confirmed_at' => current_time( 'mysql', true ),
+			'token'        => null, // Clear token after use
+			'token_expires' => null,
+		),
+		array( 'id' => $subscriber->id ),
+		array( '%s', '%s', '%s', '%s' ),
+		array( '%d' )
+	);
+
+	if ( ! $updated ) { return; }
+
+	// Hook to allow integrations (e.g., add to email service)
+	do_action( 'nsb_subscriber_confirmed', $subscriber->email, $subscriber->id );
+
+	add_action( 'wp_head', function() {
 		echo '<meta name="nsb-confirmed" content="1" />';
 	});
-	add_action( 'the_content', function( $content ) use ( $email ) {
-		$msg = '<div class="nsb-confirm">' . sprintf( esc_html__( 'Thanks, %s has been confirmed.', 'nsb' ), esc_html( $email ) ) . '</div>';
+	add_action( 'the_content', function( $content ) use ( $subscriber ) {
+		$msg = '<div class="nsb-confirm">' . sprintf( esc_html__( 'Thanks, %s has been confirmed.', 'nsb' ), esc_html( $subscriber->email ) ) . '</div>';
 		return $msg . $content;
 	});
 }
 add_action( 'template_redirect', 'nsb_maybe_handle_confirmation' );
+
+/**
+ * Clean up expired confirmation tokens (runs daily via WP Cron).
+ */
+function nsb_cleanup_expired_tokens() {
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'nsb_subscribers';
+
+	// Delete pending subscribers with expired tokens older than 7 days
+	$wpdb->query( $wpdb->prepare(
+		"DELETE FROM $table_name WHERE status = 'pending' AND token_expires < %s",
+		gmdate( 'Y-m-d H:i:s', time() - ( DAY_IN_SECONDS * 7 ) )
+	) );
+}
+
+/**
+ * Schedule daily cleanup on plugin activation.
+ */
+function nsb_schedule_cleanup() {
+	if ( ! wp_next_scheduled( 'nsb_daily_cleanup' ) ) {
+		wp_schedule_event( time(), 'daily', 'nsb_daily_cleanup' );
+	}
+}
+register_activation_hook( __FILE__, 'nsb_schedule_cleanup' );
+add_action( 'nsb_daily_cleanup', 'nsb_cleanup_expired_tokens' );
+
+/**
+ * Clear scheduled cleanup on plugin deactivation.
+ */
+function nsb_clear_scheduled_cleanup() {
+	$timestamp = wp_next_scheduled( 'nsb_daily_cleanup' );
+	if ( $timestamp ) {
+		wp_unschedule_event( $timestamp, 'nsb_daily_cleanup' );
+	}
+}
+register_deactivation_hook( __FILE__, 'nsb_clear_scheduled_cleanup' );
