@@ -44,6 +44,22 @@ function nsb_create_table() {
 register_activation_hook( __FILE__, 'nsb_create_table' );
 
 /**
+ * Ensure the database table exists (run on init as fallback).
+ */
+function nsb_maybe_create_table() {
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'nsb_subscribers';
+
+	// Check if table exists
+	$table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name ) ) === $table_name;
+
+	if ( ! $table_exists ) {
+		nsb_create_table();
+	}
+}
+add_action( 'init', 'nsb_maybe_create_table' );
+
+/**
  * Register the block (dynamic) and frontend assets.
  */
 function nsb_register_block() {
@@ -174,7 +190,9 @@ function nsb_rest_subscribe( WP_REST_Request $request ) {
 		array( '%s', '%s', '%s', '%s', '%s' )
 	);
 
-	if ( ! $inserted ) {
+	if ( false === $inserted ) {
+		// Log the error for debugging
+		error_log( 'NSB Database Error: ' . $wpdb->last_error );
 		return new WP_Error( 'nsb_db_error', __( 'Sorry, we couldn\'t process your subscription. Please try again later.', 'nsb' ), array( 'status' => 500 ) );
 	}
 
