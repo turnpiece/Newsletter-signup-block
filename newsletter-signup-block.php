@@ -77,10 +77,18 @@ function nsb_register_rest_routes() {
 	register_rest_route( 'newsletter/v1', '/subscribe', array(
 		'methods'             => 'POST',
 		'callback'            => 'nsb_rest_subscribe',
-		'permission_callback' => '__return_true', // Could tighten this with nonce/origin checks if needed.
+		'permission_callback' => 'nsb_verify_nonce',
 	) );
 }
 add_action( 'rest_api_init', 'nsb_register_rest_routes' );
+
+/**
+ * Verify the nonce for CSRF protection.
+ */
+function nsb_verify_nonce() {
+	$nonce = isset( $_SERVER['HTTP_X_WP_NONCE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_WP_NONCE'] ) ) : '';
+	return wp_verify_nonce( $nonce, 'wp_rest' );
+}
 
 /**
  * REST callback: validate email and send confirmation email.
@@ -117,13 +125,13 @@ function nsb_rest_subscribe( WP_REST_Request $request ) {
 	set_transient( 'nsb_token_' . $token, $email, HOUR_IN_SECONDS * 24 );
 	$confirm = add_query_arg( array( 'nsb_confirm' => $token ), home_url( '/' ) );
 
-	$message  = sprintf( __( "Hello.\n\nPlease confirm your subscription to %s by clicking the link below:\n%s\n\nIf you didn’t request this, you can ignore this email.\n\nThanks,\n%s", 'nsb' ), $site_name, $confirm, $site_name );
+	$message  = sprintf( __( "Hello.\n\nPlease confirm your subscription to %s by clicking the link below:\n%s\n\nIf you didn\'t request this, you can ignore this email.\n\nThanks,\n%s", 'nsb' ), $site_name, $confirm, $site_name );
 	$headers  = array( 'Content-Type: text/plain; charset=UTF-8' );
 
 	$sent = wp_mail( $email, $subject, $message, $headers );
 
 	if ( ! $sent ) {
-		return new WP_Error( 'nsb_send_failed', __( 'Sorry, we couldn’t send the confirmation email. Please try again later.', 'nsb' ), array( 'status' => 500 ) );
+		return new WP_Error( 'nsb_send_failed', __( 'Sorry, we couldn\'t send the confirmation email. Please try again later.', 'nsb' ), array( 'status' => 500 ) );
 	}
 
 	return new WP_REST_Response( array( 'ok' => true, 'message' => __( 'Thanks. Please check your email to confirm your subscription.', 'nsb' ) ), 200 );
