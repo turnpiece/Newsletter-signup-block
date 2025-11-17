@@ -2,7 +2,7 @@
   "$schema": "https://schemas.wp.org/trunk/block.json",
   "apiVersion": 3,
   "name": "nsb/newsletter-signup",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "title": "Newsletter Signup",
   "category": "widgets",
   "description": "A newsletter signup form with REST API confirmation.",

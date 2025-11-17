@@ -4,7 +4,7 @@ Tags: newsletter, signup, subscribe, email, block, gutenberg
 Requires at least: 6.0
 Tested up to: 6.6
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,6 +38,14 @@ Hook into the confirmation step inside `nsb_rest_subscribe()` and call your prov
 = 1.0.0 =
 
 - Initial release.
+
+= 1.0.1 = 
+
+- Tightened security
+
+= 1.0.2 =
+
+- Store subscriptions in database table
 
 == License ==
 
