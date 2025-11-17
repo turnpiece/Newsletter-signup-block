@@ -121,7 +121,7 @@ function nsb_rest_subscribe( WP_REST_Request $request ) {
 	$subject   = sprintf( __( 'Confirm your subscription to %s', 'nsb' ), $site_name );
 
 	// Create a one-time confirmation link (token stored in transient). In production, use user meta or a custom table.
-	$token   = wp_generate_password( 20, false );
+	$token   = bin2hex( random_bytes( 32 ) ); // Cryptographically secure 64-character token
 	set_transient( 'nsb_token_' . $token, $email, HOUR_IN_SECONDS * 24 );
 	$confirm = add_query_arg( array( 'nsb_confirm' => $token ), home_url( '/' ) );
 
