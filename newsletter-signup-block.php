@@ -2,14 +2,14 @@
 /**
  * Plugin Name: Newsletter Signup Block
  * Description: A custom Gutenberg block that renders a newsletter signup form and posts to a custom REST endpoint which validates the email and sends a confirmation email.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Paul Jenkins
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 // Constants
-const NSB_VERSION = '1.0.1';
+const NSB_VERSION = '1.0.2';
 const NSB_PLUGIN_DIR = __DIR__;
 const NSB_DB_VERSION = '1.0';
 
